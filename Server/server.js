@@ -15,9 +15,31 @@ const app = express();
 const PORT = process.env.PORT || 4000;
 let dbReady = false;
 
+const defaultAllowedOrigins = [
+  "http://localhost:5173",
+  "https://agricultural-equipment-rental.vercel.app",
+];
+const allowedOrigins = [
+  ...defaultAllowedOrigins,
+  ...(process.env.CLIENT_URL || "")
+    .split(",")
+    .map((url) => url.trim())
+    .filter(Boolean),
+];
+
 // Security & Middlewares
 app.use(helmet({ crossOriginResourcePolicy: false }));
-app.use(cors({ origin: process.env.CLIENT_URL || 'http://localhost:5173', credentials: true }));
+app.use(cors({
+  origin(origin, callback) {
+    // Requests without an Origin header (health checks, server-to-server calls) are safe.
+    if (!origin || allowedOrigins.includes(origin)) {
+      return callback(null, true);
+    }
+
+    return callback(new Error(`CORS blocked for origin: ${origin}`));
+  },
+  credentials: true,
+}));
 app.use(express.json());
 
 // Auth rate limiter to protect against brute-force
