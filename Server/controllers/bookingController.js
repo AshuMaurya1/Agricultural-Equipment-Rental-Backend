@@ -38,7 +38,7 @@ const checkAvailability = async (tractorId, startDate, endDate) => {
 // API to check Availability of Tractor for the given dates and Location (Optimized: single batch query)
 export const checkTractorAvailability = async (req, res) => {
     try {
-        const { location, startDate, endDate } = req.body;
+        const { location, district, block, state, startDate, endDate } = req.body;
 
         if (!startDate || !endDate) {
             return res.status(400).json({ success: false, message: 'startDate and endDate are required' });
@@ -62,7 +62,17 @@ export const checkTractorAvailability = async (req, res) => {
             _id: { $nin: bookedTractorIds }
         };
 
-        if (location && location.trim() !== '') {
+        if (block && block.trim() !== '' && block !== 'All') {
+            query.$or = [
+                { block: { $regex: new RegExp(block.trim(), 'i') } },
+                { location: { $regex: new RegExp(block.trim(), 'i') } }
+            ];
+        } else if (district && district.trim() !== '' && district !== 'All') {
+            query.$or = [
+                { district: { $regex: new RegExp(district.trim(), 'i') } },
+                { location: { $regex: new RegExp(district.trim(), 'i') } }
+            ];
+        } else if (location && location.trim() !== '') {
             query.location = { $regex: new RegExp(location.trim(), 'i') };
         }
 

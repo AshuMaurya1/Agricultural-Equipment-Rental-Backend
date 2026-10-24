@@ -41,6 +41,10 @@ export const addTractor = async (req, res) => {
             transportRatePerKm: Number(submittedData.transportRatePerKm || 40),
             driverDailyRate: Number(submittedData.driverDailyRate || 500),
             driverHourlyRate: Number(submittedData.driverHourlyRate || 100),
+            state: submittedData.state ?? 'Uttar Pradesh',
+            district: submittedData.district ?? '',
+            block: submittedData.block ?? '',
+            villageOrLandmark: submittedData.villageOrLandmark ?? '',
             driverAvailable: submittedData.driverAvailable ?? true,
             implementsAvailable: submittedData.implementsAvailable ?? [
                 { name: "Rotavator (42-blades)", pricePerDay: 500, pricePerHour: 150, pricePerAcre: 300 },
@@ -155,7 +159,7 @@ export const updateTractor = async (req, res) => {
         const allowedFields = [
             'brand', 'model', 'year', 'category', 'seatingCapacity',
             'fuelType', 'transmission', 'pricePerDay', 'pricePerHour', 'pricePerAcre',
-            'horsePower', 'transportRatePerKm', 'location', 'description', 'isAvailable',
+            'horsePower', 'transportRatePerKm', 'state', 'district', 'block', 'villageOrLandmark', 'location', 'description', 'isAvailable',
             'driverDailyRate', 'driverHourlyRate', 'driverAvailable', 'implementsAvailable'
         ];
 
