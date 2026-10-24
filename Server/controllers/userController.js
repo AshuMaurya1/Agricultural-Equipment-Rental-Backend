@@ -80,11 +80,11 @@ export const registerUser = async (req, res) => {
         const { name, email, password } = req.body;
 
         if (!name || !email || !password || password.length < 8) {
-            return res.json({ success: false, message: 'Please fill all fields and use a password with at least 8 characters.' });
+            return res.status(400).json({ success: false, message: 'Please fill all fields and use a password with at least 8 characters.' });
         }
         const userExists = await User.findOne({ email });
         if (userExists) {
-            return res.json({ success: false, message: 'User already exists' });
+            return res.status(409).json({ success: false, message: 'User already exists' });
         }
         const hashedPassword = await bcrypt.hash(password, 12);
         const user = await User.create({ name, email, password: hashedPassword });
@@ -94,11 +94,11 @@ export const registerUser = async (req, res) => {
         await user.save();
         await sendVerificationEmail(user, verificationToken);
         const session = await issueSession(user, req, res);
-        res.json({ success: true, ...session });
+        res.status(201).json({ success: true, ...session });
         
     } catch (error) {
-        console.log(error.message);
-        res.json({ success: false, message: error.message });
+        console.error('registerUser error:', error.message);
+        res.status(500).json({ success: false, message: error.message });
     }
 };
 
@@ -106,13 +106,16 @@ export const registerUser = async (req, res) => {
 export const loginUser = async (req, res) => {
     try {
         const { email, password } = req.body;
+        if (!email || !password) {
+            return res.status(400).json({ success: false, message: 'Email and password are required' });
+        }
         const user = await User.findOne({ email });
         if (!user) {
-            return res.json({ success: false, message: 'User does not exist' });
+            return res.status(401).json({ success: false, message: 'Invalid credentials' });
         }
         const isMatch = await bcrypt.compare(password, user.password);
         if (!isMatch) {
-            return res.json({ success: false, message: 'Invalid credentials' });
+            return res.status(401).json({ success: false, message: 'Invalid credentials' });
         }
         if (user.twoFactor?.enabled) {
             const challengeToken = jwt.sign({ userId: user._id.toString(), purpose: 'two-factor-login' }, process.env.JWT_SECRET, { expiresIn: '5m' });
@@ -121,8 +124,8 @@ export const loginUser = async (req, res) => {
         const session = await issueSession(user, req, res);
         res.json({ success: true, ...session });
     } catch(error) {
-        console.log(error.message);
-        res.json({ success: false, message: error.message });
+        console.error('loginUser error:', error.message);
+        res.status(500).json({ success: false, message: error.message });
     }
 };
 
@@ -224,8 +227,8 @@ export const getUserData = async (req, res) => {
         delete user.twoFactor;
         res.json({ success: true, user: { ...user, twoFactorEnabled: Boolean(req.user.twoFactor?.enabled) } });
     } catch (error) {
-        console.log(error.message);
-        res.json({ success: false, message: error.message });
+        console.error('getUserData error:', error.message);
+        res.status(500).json({ success: false, message: error.message });
     }
 };
 

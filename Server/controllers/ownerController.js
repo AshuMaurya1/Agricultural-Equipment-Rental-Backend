@@ -2,7 +2,6 @@ import imagekit from "../config/imageKit.js";
 import Booking from "../models/Booking.js";
 import User from "../models/User.js";
 import Tractor from "../models/tractor.js";
-import fs from 'fs';
 
 export const changeRoleToOwner = async (req, res) => {
     try {
@@ -10,8 +9,8 @@ export const changeRoleToOwner = async (req, res) => {
         await User.findByIdAndUpdate(_id, { role: 'owner' }, { new: true });
         return res.json({ success: true, message: 'Now you can list tractors' });
     } catch (error) {
-        console.log(error.message);
-        return res.json({ success: false, message: error.message });
+        console.error('changeRoleToOwner error:', error.message);
+        return res.status(500).json({ success: false, message: error.message });
     }
 };
 
@@ -19,8 +18,18 @@ export const changeRoleToOwner = async (req, res) => {
 export const addTractor = async (req, res) => {
     try {
         const { _id } = req.user;
-        const submittedData = JSON.parse(req.body.tractorData || '{}');
-        // Accept the current camelCase client fields as well as older saved form payloads.
+        
+        let submittedData = {};
+        if (req.body.tractorData) {
+            try {
+                submittedData = typeof req.body.tractorData === 'string'
+                    ? JSON.parse(req.body.tractorData)
+                    : req.body.tractorData;
+            } catch (err) {
+                return res.status(400).json({ success: false, message: 'Invalid JSON payload in tractorData' });
+            }
+        }
+
         const tractorData = {
             ...submittedData,
             seatingCapacity: submittedData.seatingCapacity ?? submittedData.seating_capacity ?? 1,
@@ -40,21 +49,19 @@ export const addTractor = async (req, res) => {
                 { name: "Heavy Duty Tipping Trolley", pricePerDay: 600, pricePerHour: 180, pricePerAcre: 350 }
             ]
         };
-        const imageFile = req.file;
 
+        const imageFile = req.file;
         if (!imageFile) {
             return res.status(400).json({ success: false, message: 'Image upload is required' });
         }
 
         if (!imagekit) {
-            try { fs.unlinkSync(imageFile.path); } catch(e){}
             return res.status(500).json({ success: false, message: 'ImageKit is not configured. Please check environment variables.' });
         }
 
-        const fileBuffer = fs.readFileSync(imageFile.path);
-        const base64File = fileBuffer.toString('base64');
+        // Upload directly from memory buffer
         const response = await imagekit.upload({
-            file: base64File,
+            file: imageFile.buffer,
             fileName: imageFile.originalname,
             folder: '/tractors'
         });
@@ -68,21 +75,15 @@ export const addTractor = async (req, res) => {
             ]
         });
 
-        const image = optimizedImageUrl;
-
         const tractor = await Tractor.create({
             ...tractorData,
             owner: _id,
-            image
+            image: optimizedImageUrl
         });
 
-        // remove the temp file
-        try { fs.unlinkSync(imageFile.path); } catch(e){}
-
-        return res.json({ success: true, message: 'Tractor added successfully', tractor });
+        return res.status(201).json({ success: true, message: 'Tractor added successfully', tractor });
     } catch (error) {
-        if (req.file) { try { fs.unlinkSync(req.file.path); } catch(e){} }
-        console.log(error.message);
+        console.error('addTractor error:', error.message);
         return res.status(500).json({ success: false, message: error.message });
     }
 };
@@ -94,8 +95,8 @@ export const getOwnerTractors = async (req, res) => {
         const tractors = await Tractor.find({ owner: _id });
         return res.json({ success: true, tractors });
     } catch (error) {
-        console.log(error.message);
-        return res.json({ success: false, message: error.message });
+        console.error('getOwnerTractors error:', error.message);
+        return res.status(500).json({ success: false, message: error.message });
     }
 };
 
@@ -115,8 +116,8 @@ export const toggleTractorAvailability = async (req, res) => {
 
         return res.json({ success: true, message: 'Availability toggled successfully', tractor: tractorDoc });
     } catch (error) {
-        console.log(error.message);
-        return res.json({ success: false, message: error.message });
+        console.error('toggleTractorAvailability error:', error.message);
+        return res.status(500).json({ success: false, message: error.message });
     }
 };
 
@@ -135,8 +136,8 @@ export const deleteTractor = async (req, res) => {
 
         return res.json({ success: true, message: 'Tractor deleted successfully' });
     } catch (error) {
-        console.log(error.message);
-        return res.json({ success: false, message: error.message });
+        console.error('deleteTractor error:', error.message);
+        return res.status(500).json({ success: false, message: error.message });
     }
 };
 
@@ -155,7 +156,7 @@ export const updateTractor = async (req, res) => {
             'brand', 'model', 'year', 'category', 'seatingCapacity',
             'fuelType', 'transmission', 'pricePerDay', 'pricePerHour', 'pricePerAcre',
             'horsePower', 'transportRatePerKm', 'location', 'description', 'isAvailable',
-            'driverDailyRate', 'driverHourlyRate', 'driverAvailable'
+            'driverDailyRate', 'driverHourlyRate', 'driverAvailable', 'implementsAvailable'
         ];
 
         allowedFields.forEach((field) => {
@@ -167,7 +168,7 @@ export const updateTractor = async (req, res) => {
         await tractorDoc.save();
         return res.json({ success: true, message: 'Tractor details updated successfully', tractor: tractorDoc });
     } catch (error) {
-        console.log(error.message);
+        console.error('updateTractor error:', error.message);
         return res.status(500).json({ success: false, message: error.message });
     }
 };
@@ -206,7 +207,7 @@ export const toggleDateBlock = async (req, res) => {
             blockedDates: tractor.blockedDates
         });
     } catch (error) {
-        console.log(error.message);
+        console.error('toggleDateBlock error:', error.message);
         return res.status(500).json({ success: false, message: error.message });
     }
 };
@@ -231,7 +232,7 @@ export const assignOperator = async (req, res) => {
 
         res.json({ success: true, message: 'Operator assigned successfully', operator: booking.operatorAssigned });
     } catch (error) {
-        console.log(error.message);
+        console.error('assignOperator error:', error.message);
         return res.status(500).json({ success: false, message: error.message });
     }
 };
@@ -239,11 +240,7 @@ export const assignOperator = async (req, res) => {
 // API To get Dashboard Data
 export const getDashboardData = async (req, res) => {
     try {
-        const { _id, role } = req.user;
-
-        if (role !== 'owner') {
-            return res.status(403).json({ success: false, message: 'Unauthorized access' });
-        }
+        const { _id } = req.user;
 
         const tractors = await Tractor.find({ owner: _id });
         const bookings = await Booking.find({ owner: _id })
@@ -251,27 +248,30 @@ export const getDashboardData = async (req, res) => {
             .populate({ path: 'user', select: 'name email' })
             .sort({ createdAt: -1 });
 
-        const pendingBooking = await Booking.find({ owner: _id, status: 'pending' });
-        const completedBooking = await Booking.find({ owner: _id, status: 'confirmed' });
-        const cancelledBooking = await Booking.find({ owner: _id, status: 'cancelled' });
+        // Filter in-memory to prevent multiple redundant database round-trips
+        const pendingBooking = bookings.filter((b) => b.status === 'pending');
+        const completedBooking = bookings.filter((b) => b.status === 'confirmed');
+        const cancelledBooking = bookings.filter((b) => b.status === 'cancelled');
 
-        const totalRevenue = bookings
-            .filter((booking) => booking.status === 'confirmed')
-            .reduce((acc, booking) => acc + booking.price, 0);
+        const totalRevenue = completedBooking.reduce((acc, booking) => acc + (booking.price || 0), 0);
 
-        // Monthly revenue stats
+        // Monthly revenue stats for current calendar year
+        const currentYear = new Date().getFullYear();
         const months = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
         const monthlyStats = {};
-        months.forEach(m => { monthlyStats[m] = 0; });
+        months.forEach((m) => { monthlyStats[m] = 0; });
         
-        bookings.forEach(b => {
+        bookings.forEach((b) => {
             if (b.status === 'confirmed' && b.createdAt) {
-                const monthName = months[new Date(b.createdAt).getMonth()];
-                monthlyStats[monthName] = (monthlyStats[monthName] || 0) + (b.price || 0);
+                const bDate = new Date(b.createdAt);
+                if (bDate.getFullYear() === currentYear) {
+                    const monthName = months[bDate.getMonth()];
+                    monthlyStats[monthName] = (monthlyStats[monthName] || 0) + (b.price || 0);
+                }
             }
         });
 
-        const revenueChartData = Object.keys(monthlyStats).map(month => ({
+        const revenueChartData = Object.keys(monthlyStats).map((month) => ({
             month,
             revenue: monthlyStats[month]
         }));
@@ -296,12 +296,12 @@ export const getDashboardData = async (req, res) => {
         res.json({ success: true, dashboardData });
 
     } catch (error) {
-        console.log(error.message);
+        console.error('getDashboardData error:', error.message);
         return res.status(500).json({ success: false, message: error.message });
     }
 };
 
-// API to Update user image
+// API to Update user image - prevents sensitive data leak
 export const updateUserImage = async (req, res) => {
     try {
         const { _id } = req.user;
@@ -312,14 +312,12 @@ export const updateUserImage = async (req, res) => {
         }
 
         if (!imagekit) {
-            try { fs.unlinkSync(imageFile.path); } catch(e){}
             return res.status(500).json({ success: false, message: 'ImageKit is not configured. Please check environment variables.' });
         }
 
-        const fileBuffer = fs.readFileSync(imageFile.path);
-        const base64File = fileBuffer.toString('base64');
+        // Direct upload from memory buffer
         const response = await imagekit.upload({
-            file: base64File,
+            file: imageFile.buffer,
             fileName: imageFile.originalname,
             folder: '/users'
         });
@@ -335,12 +333,18 @@ export const updateUserImage = async (req, res) => {
 
         const image = optimizedImageUrl;
         await User.findByIdAndUpdate(_id, { image });
-        // remove the temp file
-        try { fs.unlinkSync(imageFile.path); } catch(e){}
-        res.json({ success: true, message: 'User image updated successfully', image, user: await User.findById(_id) });
+        
+        // Exclude passwords, active sessions, and 2FA secrets from the response
+        const safeUser = await User.findById(_id).select('-password -sessions -twoFactor');
+        
+        res.json({ 
+            success: true, 
+            message: 'User image updated successfully', 
+            image, 
+            user: safeUser 
+        });
     } catch (error) {
-        if (req.file) { try { fs.unlinkSync(req.file.path); } catch(e){} }
-        console.log(error.message);
+        console.error('updateUserImage error:', error.message);
         return res.status(500).json({ success: false, message: error.message });
     }
 };

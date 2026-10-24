@@ -1,21 +1,29 @@
 import Booking from '../models/Booking.js';
 import Tractor from '../models/tractor.js';
 
-// Function to check Availability of Tractor
-const checkAvailability = async(tractorId, startDate, endDate) => {
-    const bookings = await Booking.find({
+const defaultImplements = [
+    { name: "Rotavator (42-blades)", pricePerDay: 500, pricePerHour: 150, pricePerAcre: 300 },
+    { name: "Cultivator / Harrow (9-tyne)", pricePerDay: 300, pricePerHour: 100, pricePerAcre: 200 },
+    { name: "MB Reversible Plough", pricePerDay: 400, pricePerHour: 120, pricePerAcre: 250 },
+    { name: "Heavy Duty Tipping Trolley", pricePerDay: 600, pricePerHour: 180, pricePerAcre: 350 }
+];
+
+// Helper to check single tractor availability
+const checkAvailability = async (tractorId, startDate, endDate) => {
+    const start = new Date(startDate);
+    const end = new Date(endDate);
+
+    const conflictingBooking = await Booking.findOne({
         tractor: tractorId,
         status: { $ne: 'cancelled' },
-        startDate: { $lt: endDate },
-        endDate: { $gt: startDate }
+        startDate: { $lt: end },
+        endDate: { $gt: start }
     });
-    if (bookings.length > 0) return false;
+    if (conflictingBooking) return false;
 
     // Check if any date in the range matches an owner-blocked date
-    const tractor = await Tractor.findById(tractorId);
+    const tractor = await Tractor.findById(tractorId).select('blockedDates');
     if (tractor && tractor.blockedDates && tractor.blockedDates.length > 0) {
-        const start = new Date(startDate);
-        const end = new Date(endDate);
         for (const blocked of tractor.blockedDates) {
             const bDate = new Date(blocked);
             if (bDate >= start && bDate <= end) {
@@ -27,32 +35,54 @@ const checkAvailability = async(tractorId, startDate, endDate) => {
     return true;
 };
 
-// API to check Availability of Tractor for the given dates and Location
+// API to check Availability of Tractor for the given dates and Location (Optimized: single batch query)
 export const checkTractorAvailability = async (req, res) => {
-    try{
+    try {
         const { location, startDate, endDate } = req.body;
 
-        const query = { isAvailable: true };
-        if (location && location.trim() !== '') {
-            query.location = location;
+        if (!startDate || !endDate) {
+            return res.status(400).json({ success: false, message: 'startDate and endDate are required' });
         }
 
-        const tractors = await Tractor.find(query);
+        const start = new Date(startDate);
+        const end = new Date(endDate);
+        if (isNaN(start.getTime()) || isNaN(end.getTime()) || start >= end) {
+            return res.status(400).json({ success: false, message: 'Invalid date range. Start date must be before end date.' });
+        }
 
-        const defaultImplements = [
-            { name: "Rotavator (42-blades)", pricePerDay: 500, pricePerHour: 150, pricePerAcre: 300 },
-            { name: "Cultivator / Harrow (9-tyne)", pricePerDay: 300, pricePerHour: 100, pricePerAcre: 200 },
-            { name: "MB Reversible Plough", pricePerDay: 400, pricePerHour: 120, pricePerAcre: 250 },
-            { name: "Heavy Duty Tipping Trolley", pricePerDay: 600, pricePerHour: 180, pricePerAcre: 350 }
-        ];
+        // Batch query: Find all tractors that already have overlapping active bookings
+        const bookedTractorIds = await Booking.distinct('tractor', {
+            status: { $ne: 'cancelled' },
+            startDate: { $lt: end },
+            endDate: { $gt: start }
+        });
 
-        // check tractor availability for the given dates
-        const availableTractorsPromises = tractors.map(async (tractor) => {
-            const isDateAvailable = await checkAvailability(tractor._id, startDate, endDate);
+        const query = {
+            isAvailable: true,
+            _id: { $nin: bookedTractorIds }
+        };
+
+        if (location && location.trim() !== '') {
+            query.location = { $regex: new RegExp(location.trim(), 'i') };
+        }
+
+        const candidateTractors = await Tractor.find(query);
+
+        // Filter out tractors blocked by owner maintenance dates directly in memory
+        const availableTractors = candidateTractors.filter((tractor) => {
+            if (tractor.blockedDates && tractor.blockedDates.length > 0) {
+                for (const blocked of tractor.blockedDates) {
+                    const bDate = new Date(blocked);
+                    if (bDate >= start && bDate <= end) {
+                        return false;
+                    }
+                }
+            }
+            return true;
+        }).map((tractor) => {
             const doc = tractor._doc || tractor;
             return {
                 ...doc,
-                isAvailable: isDateAvailable && doc.isAvailable,
                 implementsAvailable: (doc.implementsAvailable && doc.implementsAvailable.length > 0)
                     ? doc.implementsAvailable
                     : defaultImplements,
@@ -69,12 +99,9 @@ export const checkTractorAvailability = async (req, res) => {
             };
         });
 
-        let availableTractors = await Promise.all(availableTractorsPromises);
-        availableTractors = availableTractors.filter(tractor => tractor.isAvailable === true);
         res.json({ success: true, availableTractors });
-
     } catch (error) {
-        console.log(error.message);
+        console.error('checkTractorAvailability error:', error.message);
         return res.status(500).json({ success: false, message: error.message });
     }
 };
@@ -97,6 +124,16 @@ export const createBooking = async (req, res) => {
             transactionId = ''
         } = req.body;
 
+        if (!tractorId || !startDate || !endDate) {
+            return res.status(400).json({ success: false, message: 'tractorId, startDate, and endDate are required' });
+        }
+
+        const start = new Date(startDate);
+        const end = new Date(endDate);
+        if (isNaN(start.getTime()) || isNaN(end.getTime()) || start >= end) {
+            return res.status(400).json({ success: false, message: 'Invalid booking date range' });
+        }
+
         const TractorData = await Tractor.findById(tractorId);
         if (!TractorData) {
             return res.status(404).json({ success: false, message: 'Tractor not found' });
@@ -106,9 +143,31 @@ export const createBooking = async (req, res) => {
             return res.status(400).json({ success: false, message: 'This tractor is currently marked as unavailable for booking' });
         }
 
-        const isAvailable = await checkAvailability(tractorId, startDate, endDate);
-        if (!isAvailable) {
-            return res.json({ success: false, message: 'Tractor is not available for the selected dates' });
+        // Prevent owners from booking their own equipment
+        if (TractorData.owner.toString() === _id.toString()) {
+            return res.status(400).json({ success: false, message: 'Owners cannot book their own tractor' });
+        }
+
+        // Atomic check to prevent double bookings
+        const conflictingBooking = await Booking.findOne({
+            tractor: tractorId,
+            status: { $ne: 'cancelled' },
+            startDate: { $lt: end },
+            endDate: { $gt: start }
+        });
+
+        if (conflictingBooking) {
+            return res.status(409).json({ success: false, message: 'Tractor is no longer available for the selected dates' });
+        }
+
+        // Check maintenance blocked dates
+        if (TractorData.blockedDates && TractorData.blockedDates.length > 0) {
+            for (const blocked of TractorData.blockedDates) {
+                const bDate = new Date(blocked);
+                if (bDate >= start && bDate <= end) {
+                    return res.status(409).json({ success: false, message: `Tractor is scheduled for maintenance on ${blocked}` });
+                }
+            }
         }
 
         const count = Math.max(1, Number(unitsBooked || 1));
@@ -134,8 +193,6 @@ export const createBooking = async (req, res) => {
             driverPrice = withDriver ? count * 250 : 0;
         } else {
             // Default: 'day'
-            const start = new Date(startDate);
-            const end = new Date(endDate);
             const diffDays = Math.max(1, Math.ceil(Math.abs(end - start) / (1000 * 60 * 60 * 24)));
             const days = Math.max(diffDays, count);
 
@@ -158,18 +215,19 @@ export const createBooking = async (req, res) => {
 
         if (paymentMethod === 'online_advance') {
             advanceAmount = Math.round(totalPrice * 0.2); // 20% advance token
-            paymentStatus = 'advance_paid';
+            // In production, this should be confirmed via payment webhook
+            paymentStatus = transactionId ? 'advance_paid' : 'pending';
         } else if (paymentMethod === 'full_online') {
             advanceAmount = totalPrice;
-            paymentStatus = 'fully_paid';
+            paymentStatus = transactionId ? 'fully_paid' : 'pending';
         }
 
         const newBooking = await Booking.create({
             tractor: TractorData._id,
             owner: TractorData.owner,
             user: _id,
-            startDate,
-            endDate,
+            startDate: start,
+            endDate: end,
             rentalUnit,
             unitsBooked: count,
             price: totalPrice,
@@ -186,51 +244,46 @@ export const createBooking = async (req, res) => {
             customerNotes
         });
 
-        res.json({ success: true, message: 'Booking created successfully', booking: newBooking });
+        res.status(201).json({ success: true, message: 'Booking created successfully', booking: newBooking });
     } catch (error) {
-        console.log(error.message);
+        console.error('createBooking error:', error.message);
         return res.status(500).json({ success: false, message: error.message });
     }
 };
 
 // API to List User Bookings
 export const getUserBookings = async (req, res) => {
-    try{
-        const {_id} = req.user;
+    try {
+        const { _id } = req.user;
         const bookings = await Booking.find({ user: _id })
             .populate('tractor')
             .populate({ path: 'owner', select: 'name email phone' })
             .sort({ createdAt: -1 });
         res.json({ success: true, bookings });
-
-    } catch(error){
-        console.log(error.message);
+    } catch (error) {
+        console.error('getUserBookings error:', error.message);
         return res.status(500).json({ success: false, message: error.message });
     }
 };
 
 // API To Get Owner Bookings
 export const getOwnerBookings = async (req, res) => {
-    try{
-        if(req.user.role !== 'owner'){
-            return res.status(403).json({ success: false, message: 'Access denied' });
-        }
+    try {
         const bookings = await Booking.find({ owner: req.user._id })
             .populate('tractor')
             .populate({ path: 'user', select: '-password' })
             .sort({ createdAt: -1 });
         res.json({ success: true, bookings });
-
-    } catch(error){
-        console.log(error.message);
+    } catch (error) {
+        console.error('getOwnerBookings error:', error.message);
         return res.status(500).json({ success: false, message: error.message });
     }
 };
 
 // User or Owner can Update Booking Status
 export const updateBookingStatus = async (req, res) => {
-    try{
-        const {_id} = req.user;
+    try {
+        const { _id } = req.user;
         const { bookingId, status } = req.body;
         
         const validStatuses = ['pending', 'confirmed', 'cancelled'];
@@ -239,7 +292,6 @@ export const updateBookingStatus = async (req, res) => {
         }
 
         const booking = await Booking.findById(bookingId);
-        
         if (!booking) {
             return res.status(404).json({ success: false, message: 'Booking not found' });
         }
@@ -264,8 +316,8 @@ export const updateBookingStatus = async (req, res) => {
         booking.status = status;
         await booking.save();
         res.json({ success: true, message: `Booking status updated to ${status}` });
-    } catch(error){
-        console.log(error.message);
+    } catch (error) {
+        console.error('updateBookingStatus error:', error.message);
         return res.status(500).json({ success: false, message: error.message });
     }
 };

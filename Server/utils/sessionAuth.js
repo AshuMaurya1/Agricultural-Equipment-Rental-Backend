@@ -3,6 +3,7 @@ import jwt from 'jsonwebtoken';
 
 const ACCESS_TOKEN_LIFETIME = process.env.ACCESS_TOKEN_LIFETIME || '15m';
 const REFRESH_TOKEN_DAYS = Number(process.env.REFRESH_TOKEN_DAYS || 30);
+const isProduction = process.env.NODE_ENV === 'production';
 
 export const hashToken = (token) => crypto.createHash('sha256').update(token).digest('hex');
 export const createRefreshToken = () => crypto.randomBytes(48).toString('base64url');
@@ -16,6 +17,7 @@ export const encryptSecret = (value) => {
   const encrypted = Buffer.concat([cipher.update(value, 'utf8'), cipher.final()]);
   return `${iv.toString('base64url')}.${cipher.getAuthTag().toString('base64url')}.${encrypted.toString('base64url')}`;
 };
+
 export const decryptSecret = (value) => {
   const [ivValue, tagValue, encryptedValue] = value.split('.');
   const decipher = crypto.createDecipheriv('aes-256-gcm', encryptionKey(), Buffer.from(ivValue, 'base64url'));
@@ -31,7 +33,7 @@ export const createAccessToken = (userId, sessionId) => jwt.sign(
 
 export const getClientIp = (req) => req.headers['x-forwarded-for']?.split(',')[0].trim()
   || req.ip
-  || req.socket.remoteAddress
+  || req.socket?.remoteAddress
   || '';
 
 export const getDeviceName = (userAgent = '') => {
@@ -46,6 +48,9 @@ export const getDeviceName = (userAgent = '') => {
 export const getRefreshExpiry = () => new Date(Date.now() + REFRESH_TOKEN_DAYS * 24 * 60 * 60 * 1000);
 
 export const readRefreshToken = (req) => {
+  if (req.cookies && req.cookies.refreshToken) {
+    return req.cookies.refreshToken;
+  }
   const cookieValue = req.headers.cookie
     ?.split(';')
     .map((part) => part.trim())
@@ -56,15 +61,15 @@ export const readRefreshToken = (req) => {
 
 export const setRefreshCookie = (res, token) => res.cookie('refreshToken', token, {
   httpOnly: true,
-  secure: process.env.NODE_ENV === 'production',
-  sameSite: 'lax',
+  secure: isProduction,
+  sameSite: isProduction ? 'none' : 'lax',
   maxAge: REFRESH_TOKEN_DAYS * 24 * 60 * 60 * 1000,
   path: '/api/user'
 });
 
 export const clearRefreshCookie = (res) => res.clearCookie('refreshToken', {
   httpOnly: true,
-  secure: process.env.NODE_ENV === 'production',
-  sameSite: 'lax',
+  secure: isProduction,
+  sameSite: isProduction ? 'none' : 'lax',
   path: '/api/user'
 });
