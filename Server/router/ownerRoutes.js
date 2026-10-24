@@ -25,7 +25,7 @@ ownerRouter.post('/update-image', protect, upload.single('image'), updateUserIma
 // Owner-only tractor management routes
 ownerRouter.post("/add-tractor", protect, requireRole('owner'), upload.single("image"), addTractor);
 ownerRouter.get("/tractors", protect, requireRole('owner'), getOwnerTractors);
-ownerRouter.put("/tractors/:tractorId", protect, requireRole('owner'), updateTractor);
+ownerRouter.put("/tractors/:tractorId", protect, requireRole('owner'), upload.single("image"), updateTractor);
 ownerRouter.put("/tractors/:tractorId/availability", protect, requireRole('owner'), toggleTractorAvailability);
 ownerRouter.post("/tractors/:tractorId/block-date", protect, requireRole('owner'), toggleDateBlock);
 ownerRouter.delete("/tractors/:tractorId", protect, requireRole('owner'), deleteTractor);

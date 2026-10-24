@@ -1,9 +1,13 @@
 import mongoose from 'mongoose';
 
 const userSchema = new mongoose.Schema({
-    name: { type: String, required: true },
-    email: { type: String, required: true, unique: true },
-    password: { type: String, required: true },
+    name: { type: String, required: true, trim: true },
+    email: { type: String, required: true, unique: true, lowercase: true, trim: true },
+    password: { 
+        type: String, 
+        required: [function() { return this.isNew; }, 'Password is required'] 
+    },
+    phone: { type: String, default: '', trim: true },
     role: { type: String, enum: ["owner", "user"], default: "user" },
     image: { type: String, default: '' },
     emailVerified: { type: Boolean, default: false },
@@ -31,10 +35,26 @@ const userSchema = new mongoose.Schema({
         revocationReason: { type: String, default: '' },
         suspicious: { type: Boolean, default: false }
     }],
-}, { timestamps: true });
+}, { 
+    timestamps: true,
+    toJSON: {
+        transform: function(_doc, ret) {
+            delete ret.password;
+            if (ret.twoFactor) {
+                delete ret.twoFactor.secretEncrypted;
+                delete ret.twoFactor.pendingSecretEncrypted;
+            }
+            return ret;
+        }
+    }
+});
+
+// Indexes for fast token lookups and session verification
+userSchema.index({ 'sessions.refreshTokenHash': 1 });
+userSchema.index({ 'sessions.previousRefreshTokenHash': 1 });
+userSchema.index({ emailVerificationTokenHash: 1 });
+userSchema.index({ passwordResetTokenHash: 1 });
 
 const User = mongoose.model("User", userSchema);
 
 export default User;
-
-

@@ -3,6 +3,7 @@ import {
     loginUser, 
     registerUser, 
     getUserData, 
+    updateUserProfile,
     getAllTractors, 
     addReview, 
     getTractorReviews,
@@ -21,7 +22,9 @@ import {
     disableTwoFactor,
     getAuditLogs
 } from "../controllers/userController.js";
+import { updateUserImage } from "../controllers/ownerController.js";
 import { protect } from '../middleware/auth.js';
+import upload from "../middleware/multer.js";
 
 const userRouter = express.Router(); 
 
@@ -42,6 +45,8 @@ userRouter.get('/sessions', protect, getSessions);
 userRouter.get('/audit-logs', protect, getAuditLogs);
 userRouter.delete('/sessions/:sessionId', protect, revokeSession);
 userRouter.get('/data', protect, getUserData); 
+userRouter.put('/profile', protect, updateUserProfile);
+userRouter.post('/update-image', protect, upload.single('image'), updateUserImage);
 userRouter.get('/tractors', getAllTractors);
 userRouter.post('/review', protect, addReview);
 userRouter.get('/reviews/:tractorId', getTractorReviews);

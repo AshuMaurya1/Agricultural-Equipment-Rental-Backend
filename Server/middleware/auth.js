@@ -5,26 +5,30 @@ export const protect = async (req, res, next) => {
     const authHeader = req.headers.authorization;
 
     if (!authHeader || !authHeader.startsWith('Bearer ')) {
-        return res.status(401).json({ success: false, message: 'No authorization' });
+        return res.status(401).json({ success: false, message: 'Authorization token required' });
     }
 
     const token = authHeader.split(' ')[1];
+    if (!token || token === 'undefined' || token === 'null') {
+        return res.status(401).json({ success: false, message: 'Invalid authorization token' });
+    }
 
     try {
         const decoded = jwt.verify(token, process.env.JWT_SECRET);
         const { userId, sessionId } = decoded;
 
         if (!userId || !sessionId) {
-            return res.status(401).json({ success: false, message: 'Invalid token' });
+            return res.status(401).json({ success: false, message: 'Invalid token payload' });
         }
 
         req.user = await User.findById(userId).select('-password');
         if (!req.user) {
-            return res.status(401).json({ success: false, message: 'User not found or session expired' });
+            return res.status(401).json({ success: false, message: 'User not found or account removed' });
         }
+
         const session = req.user.sessions?.find((item) => item.sessionId === sessionId);
-        if (!session || session.revokedAt) {
-            return res.status(401).json({ success: false, message: 'This session has been revoked' });
+        if (!session || session.revokedAt || (session.expiresAt && new Date(session.expiresAt) < new Date())) {
+            return res.status(401).json({ success: false, message: 'Session has expired or been revoked' });
         }
 
         // Throttle session lastActiveAt update to once every 5 minutes to prevent DB write amplification
@@ -41,6 +45,9 @@ export const protect = async (req, res, next) => {
         req.session = session;
         next();
     } catch (error) {
+        if (error.name === 'TokenExpiredError') {
+            return res.status(401).json({ success: false, message: 'Access token expired', tokenExpired: true });
+        }
         return res.status(401).json({ success: false, message: 'Invalid or expired token' });
     }
 };
