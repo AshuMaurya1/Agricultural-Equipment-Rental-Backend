@@ -180,6 +180,18 @@ const server = app.listen(PORT, () => {
   console.log(`Server is running on http://localhost:${PORT}`);
 });
 
+server.on("error", (error) => {
+  if (error.code === "EADDRINUSE") {
+    console.error(`Port ${PORT} is already in use by another process.`);
+    console.error(`To free port ${PORT} on Windows:`);
+    console.error(`  netstat -ano | findstr :${PORT}`);
+    console.error(`  taskkill /PID <PID> /F`);
+  } else {
+    console.error("Server error:", error);
+  }
+  process.exit(1);
+});
+
 // Process-level unhandled rejection handlers
 process.on("unhandledRejection", (reason) => {
   console.error("Unhandled Rejection:", reason);
@@ -188,6 +200,23 @@ process.on("unhandledRejection", (reason) => {
 process.on("uncaughtException", (error) => {
   console.error("Uncaught Exception:", error);
 });
+
+// Graceful shutdown handling
+const handleGracefulShutdown = async (signal) => {
+  console.log(`Received ${signal}. Shutting down server...`);
+  server.close(async () => {
+    try {
+      await mongoose.connection.close(false);
+      console.log("MongoDB connection closed.");
+    } catch (err) {
+      console.error("Error closing MongoDB connection:", err);
+    }
+    process.exit(0);
+  });
+};
+
+process.on("SIGINT", () => handleGracefulShutdown("SIGINT"));
+process.on("SIGTERM", () => handleGracefulShutdown("SIGTERM"));
 
 // Connect to MongoDB
 connectDB().catch((error) => {
